@@ -1,0 +1,1974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wordle — Retro Pixel Edition</title>
+    <meta name="description" content="Exact retro pixel-art Wordle with seamless Monkeytype theme switcher and serverless real-time multiplayer.">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+
+    <!-- Fonts: Pixelify Sans (Google Font) & Space Mono (Retro Monospace) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- WebRTC PeerJS & Canvas Confetti -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+    <!-- Howler.js Audio Library (https://howlerjs.com/) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+
+    <!-- Retro Audio Data URIs for Zero Latency Playback -->
+    <script src="sounds.js"></script>
+
+    <!-- Wordle Dictionary from words.csv (2,499 target words) + 14,855 valid words -->
+    <script src="words.js"></script>
+
+    <style>
+        :root {
+            /* EXACT COLORS SAMPLED FROM REFERENCE IMAGE (Default Theme: Official Retro Dark) */
+            --bg-canvas: #0e0e0e;      /* Matte dark charcoal canvas */
+            --panel-bg: #151616;       /* Card background */
+            --panel-border: #333636;   /* Double-line / retro frame border */
+            --panel-border-inner: #1f2121;
+            --text-main: #f0f0f0;      /* Crisp white / pale text */
+            --text-muted: #888b8b;     /* Subtitle & small labels */
+            
+            --tile-empty: #181919;     /* Unfilled tile background */
+            --tile-border: #2e3030;    /* Tile outline */
+            --tile-active: #565a5a;    /* Active typing outline */
+            --tile-correct: #4f8048;   /* Forest / retro green */
+            --tile-present: #c2a02f;   /* Warm mustard yellow */
+            --tile-absent: #383636;    /* Dark gray evaluated tile */
+
+            --key-bg: #424445;         /* Key button background */
+            --key-text: #ffffff;
+            --key-border: #282a2a;
+            --accent-green: #4f8048;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            background-color: var(--bg-canvas);
+            color: var(--text-main);
+            font-family: 'Space Mono', monospace;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            min-height: 100dvh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.25s ease, color 0.25s ease;
+        }
+
+        .pixel-font {
+            font-family: 'Pixelify Sans', 'Space Mono', sans-serif;
+            letter-spacing: 0.05em;
+        }
+
+        /* Exact Framed Card Panels from Reference */
+        .pixel-frame {
+            background-color: var(--panel-bg);
+            border: 2px solid var(--panel-border);
+            border-radius: 8px;
+            box-shadow: inset 0 0 0 1px var(--panel-border-inner), 0 4px 14px rgba(0,0,0,0.4);
+            transition: background-color 0.25s ease, border-color 0.25s ease;
+        }
+
+        /* 6x5 Wordle Tiles */
+        .tile {
+            width: 48px;
+            height: 48px;
+            background-color: var(--tile-empty);
+            border: 2px solid var(--tile-border);
+            border-radius: 4px;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Pixelify Sans', sans-serif;
+            font-size: 1.7rem;
+            line-height: 1;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-main);
+            transition: border-color 0.1s ease, background-color 0.2s ease, transform 0.08s ease;
+        }
+
+        @media (max-height: 700px) {
+            .tile {
+                width: 42px;
+                height: 42px;
+                font-size: 1.35rem;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .tile {
+                width: 40px;
+                height: 40px;
+                font-size: 1.25rem;
+            }
+        }
+
+        /* Tile Animations */
+        @keyframes popIn {
+            0% { transform: scale(0.85); opacity: 0.6; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translateX(-3px); }
+            20%, 80% { transform: translateX(5px); }
+            30%, 50%, 70% { transform: translateX(-6px); }
+            40%, 60% { transform: translateX(6px); }
+        }
+
+        @keyframes flipTile {
+            0% { transform: rotateX(0deg); }
+            49.9% { transform: rotateX(90deg); }
+            50% { transform: rotateX(90deg); }
+            100% { transform: rotateX(0deg); }
+        }
+
+        @keyframes bounceWin {
+            0%, 20% { transform: translateY(0); }
+            40% { transform: translateY(-20px); }
+            50% { transform: translateY(4px); }
+            60% { transform: translateY(-10px); }
+            80% { transform: translateY(2px); }
+            100% { transform: translateY(0); }
+        }
+
+        .tile.filled {
+            border-color: var(--tile-active);
+            animation: popIn 0.1s ease-in-out;
+        }
+
+        .tile.flip {
+            animation: flipTile 0.55s ease forwards;
+        }
+
+        .tile.bounce {
+            animation: bounceWin 0.75s ease forwards;
+        }
+
+        .row-shake {
+            animation: shake 0.45s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        /* Tile State Colors */
+        .state-correct {
+            background-color: var(--tile-correct) !important;
+            border-color: var(--tile-correct) !important;
+            color: #ffffff !important;
+        }
+
+        .state-present {
+            background-color: var(--tile-present) !important;
+            border-color: var(--tile-present) !important;
+            color: #ffffff !important;
+        }
+
+        .state-absent {
+            background-color: var(--tile-absent) !important;
+            border-color: var(--tile-absent) !important;
+            color: #ffffff !important;
+        }
+
+        /* Virtual Keyboard */
+        .key-btn {
+            height: 38px;
+            background-color: var(--key-bg);
+            border: 1px solid var(--key-border);
+            color: var(--key-text);
+            font-family: 'Space Mono', monospace;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-transform: uppercase;
+            border-radius: 4px;
+            transition: background-color 0.15s ease, transform 0.05s ease, filter 0.1s ease;
+            padding: 0 4px;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+        }
+
+        .key-btn:hover {
+            filter: brightness(1.15);
+        }
+
+        .key-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+        }
+
+        @media (max-height: 700px) {
+            .key-btn {
+                height: 34px;
+                font-size: 0.72rem;
+            }
+        }
+
+        /* Mini Grid for Multiplayer Opponent */
+        .mini-grid {
+            display: grid;
+            grid-template-rows: repeat(6, 1fr);
+            gap: 2px;
+        }
+        .mini-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+        }
+        .mini-cell {
+            width: 7px;
+            height: 7px;
+            border: 1px solid var(--panel-border);
+            background-color: var(--panel-bg);
+        }
+        .mini-cell.absent { background-color: var(--tile-absent); }
+        .mini-cell.present { background-color: var(--tile-present); }
+        .mini-cell.correct { background-color: var(--tile-correct); }
+
+        /* Fall-down Animation for Monkeytype Theme Drawer */
+        #themeDrawer {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        }
+        #themeDrawer.drawer-closed {
+            transform: translateY(-100%);
+            pointer-events: none;
+            opacity: 0;
+        }
+        #themeDrawer.drawer-open {
+            transform: translateY(0);
+            pointer-events: auto;
+            opacity: 1;
+        }
+
+        /* Floating reaction emoji */
+        @keyframes floatUpReaction {
+            0% { transform: translateY(0) scale(0.6); opacity: 0; }
+            20% { transform: translateY(-15px) scale(1.25); opacity: 1; }
+            80% { transform: translateY(-90px) scale(1.1); opacity: 0.9; }
+            100% { transform: translateY(-130px) scale(0.8); opacity: 0; }
+        }
+        .reaction-floating {
+            position: fixed;
+            font-size: 2.5rem;
+            pointer-events: none;
+            z-index: 99;
+            animation: floatUpReaction 2s ease-out forwards;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+    </style>
+</head>
+<body class="w-full min-h-[100dvh] flex flex-col items-center justify-center p-2 relative select-none">
+
+    <!-- ============================================================== -->
+    <!-- MONKEYTYPE THEME DROPDOWN DRAWER (Falls down smoothly from top) -->
+    <!-- ============================================================== -->
+    <div id="themeDrawer" class="drawer-closed fixed top-0 left-0 right-0 z-50 w-full max-h-[92vh] overflow-y-auto bg-[#18181b] text-white border-b-2 border-[#3f3f46] shadow-[0_20px_50px_rgba(0,0,0,0.85)] p-4 sm:p-6">
+        <div class="max-w-6xl mx-auto">
+            <!-- Drawer Header with Preset / Custom Tabs & Close -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#27272a] mb-4">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm sm:text-base font-extrabold uppercase tracking-wider text-zinc-100 flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+                                Theme Presets & Customizer
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-zinc-400">Completely change the look and feel of Wordle by picking one of the presets, or create your own custom theme.</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 self-end sm:self-center">
+                    <div class="flex rounded-lg overflow-hidden border border-[#3f3f46] bg-[#27272a] p-0.5 text-xs font-bold">
+                        <button id="tabPresetBtn" onclick="switchThemeTab('preset')" class="px-3.5 py-1.5 rounded-md bg-[#e04343] text-white transition">
+                            preset
+                        </button>
+                        <button id="tabCustomBtn" onclick="switchThemeTab('custom')" class="px-3.5 py-1.5 text-zinc-400 hover:text-white transition">
+                            custom
+                        </button>
+                    </div>
+                    <button onclick="toggleThemeDrawer()" title="Close Theme Picker" class="w-8 h-8 rounded-lg bg-[#27272a] hover:bg-[#3f3f46] flex items-center justify-center text-zinc-400 hover:text-white font-bold transition">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content Area: Split in 2 columns (Preset Grid on Left, Live Preview on Right) -->
+            <div id="presetView" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                <!-- 5-column Preset Grid -->
+                <div class="lg:col-span-8 flex flex-col">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Select a Theme Preset</span>
+                    <div id="themePresetGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-[380px] overflow-y-auto pr-1">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- Live Wordle Preview & Swatches -->
+                <div class="lg:col-span-4 flex flex-col gap-3">
+                    <div class="flex items-center justify-between text-xs font-bold text-zinc-400 pb-1 border-b border-[#27272a]">
+                        <span>THEME PREVIEW</span>
+                        <span id="previewThemeTitle" class="text-emerald-400 uppercase font-mono">OFFICIAL DARK</span>
+                    </div>
+
+                    <!-- Live Mini Wordle Box Preview -->
+                    <div id="livePreviewContainer" class="p-3 rounded-xl border border-zinc-700/60 shadow-xl flex flex-col items-center justify-between h-[270px]" style="background-color: var(--bg-canvas);">
+                        <!-- Mini Header -->
+                        <div class="w-full flex items-center justify-between pb-1 mb-1 border-b border-white/10 text-[9px] font-bold">
+                            <span class="pixel-font tracking-widest text-xs">WORDLE</span>
+                            <div class="flex items-center gap-1 opacity-70">
+                                <span>📊</span><span>🏆</span><span>⚙</span>
+                            </div>
+                        </div>
+
+                        <!-- Mini Board -->
+                        <div class="grid grid-rows-6 gap-[3px] my-auto">
+                            <!-- Row 1: H O P E S -->
+                            <div class="grid grid-cols-5 gap-[3px]">
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">H</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">O</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">P</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">E</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">S</span>
+                            </div>
+                            <!-- Row 2: C L I M B -->
+                            <div class="grid grid-cols-5 gap-[3px]">
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">C</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">L</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-present);">I</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">M</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-absent);">B</span>
+                            </div>
+                            <!-- Row 3: B R I N K -->
+                            <div class="grid grid-cols-5 gap-[3px]">
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">B</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">R</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">I</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">N</span>
+                                <span class="w-6 h-6 rounded-xs flex items-center justify-center pixel-font text-[10px] text-white" style="background-color: var(--tile-correct);">K</span>
+                            </div>
+                            <!-- Empty Row -->
+                            <div class="grid grid-cols-5 gap-[3px]">
+                                <span class="w-6 h-6 rounded-xs border border-zinc-700/60" style="background-color: var(--tile-empty);"></span>
+                                <span class="w-6 h-6 rounded-xs border border-zinc-700/60" style="background-color: var(--tile-empty);"></span>
+                                <span class="w-6 h-6 rounded-xs border border-zinc-700/60" style="background-color: var(--tile-empty);"></span>
+                                <span class="w-6 h-6 rounded-xs border border-zinc-700/60" style="background-color: var(--tile-empty);"></span>
+                                <span class="w-6 h-6 rounded-xs border border-zinc-700/60" style="background-color: var(--tile-empty);"></span>
+                            </div>
+                        </div>
+
+                        <!-- Mini Keyboard -->
+                        <div class="w-full flex flex-col gap-1 px-1">
+                            <div class="flex justify-center gap-1 w-full">
+                                <span class="h-3.5 flex-1 rounded-xs flex items-center justify-center text-[7px] font-bold" style="background-color: var(--key-bg);">Q</span>
+                                <span class="h-3.5 flex-1 rounded-xs flex items-center justify-center text-[7px] font-bold" style="background-color: var(--tile-correct); color: #fff;">W</span>
+                                <span class="h-3.5 flex-1 rounded-xs flex items-center justify-center text-[7px] font-bold" style="background-color: var(--tile-present); color: #fff;">E</span>
+                                <span class="h-3.5 flex-1 rounded-xs flex items-center justify-center text-[7px] font-bold" style="background-color: var(--tile-absent); color: #fff;">R</span>
+                                <span class="h-3.5 flex-1 rounded-xs flex items-center justify-center text-[7px] font-bold" style="background-color: var(--key-bg);">T</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Theme Colors Mapping -->
+                    <div class="bg-[#27272a] border border-[#3f3f46] rounded-xl p-3 flex flex-col gap-2.5 text-[10px]">
+                        <div>
+                            <span class="font-extrabold uppercase tracking-wider text-zinc-400 block mb-1">Tile Colors</span>
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-1"><span id="swatchEmpty" class="w-3.5 h-3.5 rounded border border-white/20"></span><span>empty</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchCorrect" class="w-3.5 h-3.5 rounded"></span><span>correct</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchPresent" class="w-3.5 h-3.5 rounded"></span><span>present</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchAbsent" class="w-3.5 h-3.5 rounded"></span><span>absent</span></div>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="font-extrabold uppercase tracking-wider text-zinc-400 block mb-1">UI Colors</span>
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-1"><span id="swatchBg" class="w-3.5 h-3.5 rounded border border-white/20"></span><span>bg</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchPanel" class="w-3.5 h-3.5 rounded"></span><span>panel</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchText" class="w-3.5 h-3.5 rounded"></span><span>text</span></div>
+                                <div class="flex items-center gap-1"><span id="swatchKey" class="w-3.5 h-3.5 rounded"></span><span>keys</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom Theme Tab Editor -->
+            <div id="customView" class="hidden">
+                <span class="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-3">Custom Theme Color Studio</span>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#27272a] p-4 rounded-xl border border-[#3f3f46] mb-4">
+                    <div>
+                        <label class="block text-[11px] font-bold text-zinc-300 mb-1">Canvas Background</label>
+                        <input id="customBgPicker" type="color" value="#0e0e0e" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-zinc-300 mb-1">Panel Background</label>
+                        <input id="customPanelPicker" type="color" value="#151616" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-zinc-300 mb-1">Text Color</label>
+                        <input id="customTextPicker" type="color" value="#f0f0f0" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-zinc-300 mb-1">Key Background</label>
+                        <input id="customKeyPicker" type="color" value="#424445" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-emerald-400 mb-1">Correct (Green)</label>
+                        <input id="customCorrectPicker" type="color" value="#4f8048" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-amber-400 mb-1">Present (Yellow)</label>
+                        <input id="customPresentPicker" type="color" value="#c2a02f" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-zinc-400 mb-1">Absent (Gray)</label>
+                        <input id="customAbsentPicker" type="color" value="#383636" class="w-full h-9 rounded cursor-pointer border border-[#3f3f46] bg-transparent" />
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="previewCustomColors()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 font-bold text-xs rounded transition">
+                            Preview Colors
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drawer Bottom Bar -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-[#27272a] mt-4">
+                <div class="flex items-center gap-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-zinc-500">SELECTED THEME</span>
+                            <div id="selectedThemeDots" class="flex items-center gap-1">
+                                <span class="w-2.5 h-2.5 rounded-full bg-[#4f8048]"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-[#c2a02f]"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-[#383636]"></span>
+                            </div>
+                        </div>
+                        <h4 id="selectedThemeName" class="text-sm font-extrabold uppercase font-mono text-white">official retro dark</h4>
+                        <p id="selectedThemeDesc" class="text-[11px] text-zinc-400">The exact pixel-art retro layout with matte dark obsidian background.</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="applySelectedTheme()" class="px-5 py-2.5 rounded-lg bg-[#e04343] hover:bg-[#c93838] font-black text-xs uppercase tracking-wider text-white shadow-lg transition active:scale-95">
+                        APPLY THEME
+                    </button>
+                    <button onclick="resetToOfficialTheme()" class="px-4 py-2.5 rounded-lg bg-[#27272a] hover:bg-[#3f3f46] font-bold text-xs uppercase tracking-wider text-zinc-300 transition">
+                        RESET
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLOATING TOAST CONTAINER -->
+    <div id="toastContainer" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none"></div>
+
+    <!-- ============================================================== -->
+    <!-- PERMANENT EXACT UI STRUCTURE (DO NOT ALTER STRUCTURE)           -->
+    <!-- ============================================================== -->
+
+    <!-- ============================================================== -->
+    <!-- MASTER CENTERED APP CONTAINER (Dead-center horizontally & vertically) -->
+    <!-- ============================================================== -->
+    <div class="game-wrapper w-full max-w-[850px] flex flex-col items-center justify-center my-auto px-2 py-2">
+
+        <!-- 1. TOP HEADER BAR (Exact proportions from reference) -->
+        <header class="w-full max-w-[620px] pixel-frame px-3 sm:px-5 py-1.5 flex items-center justify-between mb-3.5 z-30">
+            <!-- Wordmark -->
+            <h1 class="pixel-font text-lg sm:text-xl font-bold tracking-widest cursor-pointer select-none" onclick="startFreshWord()">
+                WORDLE
+            </h1>
+
+            <!-- Stats & Action Buttons (Vertical Dividers) -->
+            <div class="flex items-center text-xs font-bold">
+                <!-- Played -->
+                <div class="flex items-center gap-1.5 px-2.5 border-l-2 border-[var(--panel-border)]">
+                    <div class="flex flex-col items-center leading-tight">
+                        <span id="statPlayedCount" class="font-bold text-xs sm:text-sm">12</span>
+                        <span class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">PLAYED</span>
+                    </div>
+                </div>
+
+                <!-- Won -->
+                <div class="flex items-center gap-1.5 px-2.5 border-l-2 border-[var(--panel-border)]">
+                    <div class="flex flex-col items-center leading-tight">
+                        <span id="statWonCount" class="font-bold text-xs sm:text-sm">8</span>
+                        <span class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">WON</span>
+                    </div>
+                </div>
+
+                <!-- Streak -->
+                <div class="flex items-center gap-1.5 px-2.5 border-l-2 border-[var(--panel-border)]">
+                    <div class="flex flex-col items-center leading-tight">
+                        <span id="statStreakCount" class="font-bold text-xs sm:text-sm">3</span>
+                        <span class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">STREAK</span>
+                    </div>
+                </div>
+
+                <!-- Stats Modal Icon Button [ 📊 ] -->
+                <button id="statsBtn" onclick="showStatsModal()" title="Statistics" class="p-1 border-l-2 border-[var(--panel-border)] ml-1 hover:brightness-125 transition">
+                    <div class="w-6 h-6 rounded flex items-center justify-center border border-[var(--panel-border)] bg-black/20">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>
+                        </svg>
+                    </div>
+                </button>
+
+                <!-- Sound Toggle Button [ 🔊 / 🔇 ] -->
+                <button id="soundToggleBtn" onclick="sound.toggle()" title="Toggle Audio (Howler.js)" class="p-1 border-l-2 border-[var(--panel-border)] ml-1 hover:brightness-125 transition">
+                    <div class="w-6 h-6 rounded flex items-center justify-center border border-[var(--panel-border)] bg-black/20 text-zinc-300">
+                        <span id="soundIcon" class="text-xs">🔊</span>
+                    </div>
+                </button>
+
+                <!-- Settings / Monkeytype Theme Dropdown [ ⚙ ] -->
+                <button id="themeTriggerBtn" onclick="toggleThemeDrawer()" title="Themes & Settings (Monkeytype Style)" class="p-1 border-l-2 border-[var(--panel-border)] ml-1 hover:brightness-125 transition">
+                    <div class="w-6 h-6 rounded flex items-center justify-center border border-[var(--panel-border)] bg-black/20">
+                        <svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                        </svg>
+                    </div>
+                </button>
+            </div>
+        </header>
+
+        <!-- 2. MAIN 3-COLUMN LAYOUT (Centered, balanced gaps) -->
+        <div class="w-full flex items-start justify-center gap-4 sm:gap-5">
+
+            <!-- ============================================================== -->
+            <!-- LEFT PANEL: WORDLE TITLE, INSTRUCTIONS, PLAY & DAILY BUTTONS   -->
+            <!-- ============================================================== -->
+            <aside class="hidden lg:flex flex-col justify-between w-[215px] h-[355px] pixel-frame p-3.5 shrink-0">
+                <div>
+                    <!-- Title Header -->
+                    <div class="text-center mb-1">
+                        <h2 class="pixel-font text-lg font-bold tracking-widest">WORDLE</h2>
+                    </div>
+                    <div class="w-full h-[1px] bg-[var(--panel-border)] my-1.5"></div>
+
+                    <p class="text-[9px] font-bold tracking-wider leading-snug uppercase mb-1.5 text-zinc-300">
+                        GUESS THE 5 LETTER WORD IN 6 ATTEMPTS.
+                    </p>
+                    <div class="w-full h-[1px] bg-[var(--panel-border)] my-1.5"></div>
+
+                    <!-- How to Play -->
+                    <div class="text-[9.5px] font-bold uppercase tracking-wider mb-1.5 text-zinc-200">
+                        HOW TO PLAY
+                    </div>
+
+                    <ul class="text-[8.5px] font-bold space-y-1.5 leading-tight" style="color: var(--text-muted);">
+                        <li class="flex items-start gap-1.5">
+                            <span class="w-2 h-2 border border-[var(--panel-border)] shrink-0 mt-0.5 bg-zinc-300"></span>
+                            <span>Type a 5 letter word and press Enter.</span>
+                        </li>
+                        <li class="flex items-start gap-1.5">
+                            <span class="w-2 h-2 border border-[var(--panel-border)] shrink-0 mt-0.5 bg-zinc-300"></span>
+                            <span>After each guess, the tile colors show how close you are.</span>
+                        </li>
+                        <li class="flex items-start gap-1.5">
+                            <span class="w-2 h-2 border border-[var(--panel-border)] shrink-0 mt-0.5 bg-zinc-300"></span>
+                            <span>You have 6 attempts to find the word.</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Action Buttons (Exact style from reference image) -->
+                <div class="flex flex-col gap-1.5 mt-2">
+                    <!-- Green Play Game Button -->
+                    <button onclick="startFreshWord()" class="w-full py-2 px-3 rounded text-[11px] font-black tracking-wider uppercase flex items-center justify-center gap-1.5 border border-black shadow transition active:scale-95" style="background-color: var(--tile-correct); color: #ffffff;">
+                        <span>▶</span> PLAY GAME
+                    </button>
+                    <!-- Daily Mode / 1v1 Multiplayer Button -->
+                    <button onclick="showMultiplayerModal()" class="w-full py-1.5 px-3 rounded text-[11px] font-bold tracking-wider uppercase border border-[var(--panel-border)] hover:brightness-125 transition active:scale-95" style="background-color: var(--tile-empty); color: var(--text-main);">
+                        DAILY MODE
+                    </button>
+                </div>
+            </aside>
+
+            <!-- ============================================================== -->
+            <!-- CENTER AREA: 6x5 WORDLE GRID + ON-SCREEN KEYBOARD               -->
+            <!-- ============================================================== -->
+            <main class="flex flex-col items-center justify-start w-[345px] sm:w-[350px] shrink-0">
+                <!-- 6x5 Tile Grid -->
+                <div id="board" class="grid grid-rows-6 gap-[5px]">
+                    <!-- Dynamically populated via JS -->
+                </div>
+
+                <!-- Virtual Keyboard (Exact QWERTY layout from reference) -->
+                <div id="keyboard" class="w-full flex flex-col gap-[4px] mt-2.5 px-0.5">
+                    <!-- Row 1 -->
+                    <div class="flex justify-center gap-[4px] w-full">
+                        <button data-key="Q" class="key-btn flex-1 max-w-[34px]">Q</button>
+                        <button data-key="W" class="key-btn flex-1 max-w-[34px]">W</button>
+                        <button data-key="E" class="key-btn flex-1 max-w-[34px]">E</button>
+                        <button data-key="R" class="key-btn flex-1 max-w-[34px]">R</button>
+                        <button data-key="T" class="key-btn flex-1 max-w-[34px]">T</button>
+                        <button data-key="Y" class="key-btn flex-1 max-w-[34px]">Y</button>
+                        <button data-key="U" class="key-btn flex-1 max-w-[34px]">U</button>
+                        <button data-key="I" class="key-btn flex-1 max-w-[34px]">I</button>
+                        <button data-key="O" class="key-btn flex-1 max-w-[34px]">O</button>
+                        <button data-key="P" class="key-btn flex-1 max-w-[34px]">P</button>
+                    </div>
+                    <!-- Row 2 -->
+                    <div class="flex justify-center gap-[4px] w-full px-1">
+                        <button data-key="A" class="key-btn flex-1 max-w-[34px]">A</button>
+                        <button data-key="S" class="key-btn flex-1 max-w-[34px]">S</button>
+                        <button data-key="D" class="key-btn flex-1 max-w-[34px]">D</button>
+                        <button data-key="F" class="key-btn flex-1 max-w-[34px]">F</button>
+                        <button data-key="G" class="key-btn flex-1 max-w-[34px]">G</button>
+                        <button data-key="H" class="key-btn flex-1 max-w-[34px]">H</button>
+                        <button data-key="J" class="key-btn flex-1 max-w-[34px]">J</button>
+                        <button data-key="K" class="key-btn flex-1 max-w-[34px]">K</button>
+                        <button data-key="L" class="key-btn flex-1 max-w-[34px]">L</button>
+                    </div>
+                    <!-- Row 3 -->
+                    <div class="flex justify-center gap-[4px] w-full">
+                        <button data-key="ENTER" class="key-btn px-2 text-[9.5px] font-bold min-w-[46px]">ENTER</button>
+                        <button data-key="Z" class="key-btn flex-1 max-w-[34px]">Z</button>
+                        <button data-key="X" class="key-btn flex-1 max-w-[34px]">X</button>
+                        <button data-key="C" class="key-btn flex-1 max-w-[34px]">C</button>
+                        <button data-key="V" class="key-btn flex-1 max-w-[34px]">V</button>
+                        <button data-key="B" class="key-btn flex-1 max-w-[34px]">B</button>
+                        <button data-key="N" class="key-btn flex-1 max-w-[34px]">N</button>
+                        <button data-key="M" class="key-btn flex-1 max-w-[34px]">M</button>
+                        <button data-key="BACKSPACE" class="key-btn px-2 min-w-[46px]" aria-label="Backspace">
+                            <span class="pixel-font font-bold text-xs">⌫</span>
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- ============================================================== -->
+            <!-- RIGHT PANEL: TILE COLORS, STATISTICS, NEXT WORD COUNTDOWN       -->
+            <!-- ============================================================== -->
+            <aside class="hidden lg:flex flex-col justify-between w-[215px] h-[355px] pixel-frame p-3.5 shrink-0">
+                <!-- 1. TILE COLORS (Legend with pixel W icons) -->
+                <div>
+                    <span class="text-[9.5px] font-bold uppercase tracking-wider block mb-1.5" style="color: var(--text-muted);">TILE COLORS</span>
+                    
+                    <div class="space-y-1.5 text-[8.5px] leading-tight">
+                        <!-- Correct -->
+                        <div class="flex items-center gap-2">
+                            <div class="w-5 h-5 rounded flex items-center justify-center pixel-font text-[10px] font-bold text-white shrink-0" style="background-color: var(--tile-correct);">
+                                W
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="font-bold text-white">Correct</span>
+                                <span style="color: var(--text-muted);">Letter is in word & correct spot.</span>
+                            </div>
+                        </div>
+
+                        <!-- Present -->
+                        <div class="flex items-center gap-2">
+                            <div class="w-5 h-5 rounded flex items-center justify-center pixel-font text-[10px] font-bold text-white shrink-0" style="background-color: var(--tile-present);">
+                                W
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="font-bold text-white">Present</span>
+                                <span style="color: var(--text-muted);">Letter is in word, wrong spot.</span>
+                            </div>
+                        </div>
+
+                        <!-- Absent -->
+                        <div class="flex items-center gap-2">
+                            <div class="w-5 h-5 rounded flex items-center justify-center pixel-font text-[10px] font-bold text-white shrink-0" style="background-color: var(--tile-absent);">
+                                W
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="font-bold text-white">Absent</span>
+                                <span style="color: var(--text-muted);">Letter is not in the word.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full h-[1px] bg-[var(--panel-border)] my-1"></div>
+
+                <!-- 2. STATISTICS -->
+                <div>
+                    <span class="text-[9.5px] font-bold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">STATISTICS</span>
+                    <div class="grid grid-cols-4 gap-1 text-center">
+                        <div>
+                            <div id="statPanelPlayed" class="text-xs font-bold text-white">12</div>
+                            <div class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">Played</div>
+                        </div>
+                        <div>
+                            <div id="statPanelWon" class="text-xs font-bold text-white">8</div>
+                            <div class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">Won</div>
+                        </div>
+                        <div>
+                            <div id="statPanelStreak" class="text-xs font-bold text-white">3</div>
+                            <div class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">Streak</div>
+                        </div>
+                        <div>
+                            <div id="statPanelWinPct" class="text-xs font-bold text-white">67%</div>
+                            <div class="text-[7.5px] uppercase tracking-wider" style="color: var(--text-muted);">Win %</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full h-[1px] bg-[var(--panel-border)] my-1"></div>
+
+                <!-- 3. NEXT WORD (Live Countdown Timer!) & Quick Duel Trigger -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[9.5px] font-bold uppercase tracking-wider" style="color: var(--text-muted);">NEXT WORD</span>
+                        <button onclick="showMultiplayerModal()" class="text-[8.5px] font-bold text-emerald-400 hover:underline">1v1 Room</button>
+                    </div>
+                    <!-- Large Countdown Clock -->
+                    <div id="nextWordCountdown" class="pixel-font text-sm font-bold tracking-widest text-white text-center py-1 rounded border border-[var(--panel-border)] bg-black/30">
+                        14:32:11
+                    </div>
+
+                    <!-- Opponent Mini Grid when in Multiplayer Duel -->
+                    <div id="duelMiniContainer" class="hidden flex items-center justify-between mt-1 pt-1 border-t border-[var(--panel-border)]">
+                        <span id="opponentStatus" class="text-[8.5px] font-bold text-zinc-400">Alex (AI)</span>
+                        <div id="opponentMiniGrid" class="mini-grid p-0.5 border border-[var(--panel-border)]"></div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- MODAL OVERLAY -->
+    <div id="modalOverlay" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 hidden items-center justify-center p-3">
+        <div id="modalContent" class="pixel-frame max-w-md w-full p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <!-- Dynamically injected -->
+        </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- LOGIC: MONKEYTYPE THEMES, VALIDATION & ENGINE  -->
+    <!-- ============================================== -->
+    <script>
+        /**
+         * 1. 25+ MONKEYTYPE THEME DEFINITIONS
+         * Dynamic CSS Custom Properties Injection
+         */
+        const THEMES = {
+            'wordle': {
+                name: 'official retro dark',
+                desc: 'The exact pixel-art retro layout with matte dark obsidian background.',
+                bg: '#0e0e0e', panel: '#151616', border: '#333636', text: '#f0f0f0',
+                correct: '#4f8048', present: '#c2a02f', absent: '#383636', keyBg: '#424445'
+            },
+            'wordle light': {
+                name: 'wordle light',
+                desc: 'Clean official light theme with crisp green and mustard accents.',
+                bg: '#ffffff', panel: '#f6f7f8', border: '#d3d6da', text: '#1a1a1b',
+                correct: '#6aaa64', present: '#c9b458', absent: '#787c7e', keyBg: '#d3d6da'
+            },
+            'sage wordle': {
+                name: 'sage wordle',
+                desc: 'A retro 1990s theme with sage panels and soft dusty lavender.',
+                bg: '#bcaabf', panel: '#c1cea4', border: '#141414', text: '#141414',
+                correct: '#43814a', present: '#d4ba5e', absent: '#181818', keyBg: '#c1cea4'
+            },
+            'serika': {
+                name: 'serika / honey',
+                desc: 'Iconic Monkeytype theme with deep graphite and warm gold.',
+                bg: '#323437', panel: '#2c2e31', border: '#e2b714', text: '#d1d0c5',
+                correct: '#e2b714', present: '#85bb5c', absent: '#4f5256', keyBg: '#3e4145'
+            },
+            'dracula': {
+                name: 'dracula',
+                desc: 'Famous gothic dark palette with vibrant neon pastels.',
+                bg: '#282a36', panel: '#383a59', border: '#6272a4', text: '#f8f8f2',
+                correct: '#50fa7b', present: '#f1fa8c', absent: '#44475a', keyBg: '#44475a'
+            },
+            'matrix': {
+                name: 'matrix',
+                desc: 'Terminal phosphor green simulation with black console feel.',
+                bg: '#0d1117', panel: '#001a08', border: '#00ff66', text: '#00ff66',
+                correct: '#00ff66', present: '#a6ff00', absent: '#162e1c', keyBg: '#0d2814'
+            },
+            'nord': {
+                name: 'nord',
+                desc: 'Arctic, north-bluish clean dark palette inspired by snow.',
+                bg: '#2e3440', panel: '#3b4252', border: '#4c566a', text: '#eceff4',
+                correct: '#a3be8c', present: '#ebcb8b', absent: '#434c5e', keyBg: '#4c566a'
+            },
+            'catppuccin': {
+                name: 'catppuccin',
+                desc: 'Cozy pastel mocha dark theme with warm accents.',
+                bg: '#1e1e2e', panel: '#252538', border: '#45475a', text: '#cdd6f4',
+                correct: '#a6e3a1', present: '#f9e2af', absent: '#45475a', keyBg: '#313244'
+            },
+            'miami': {
+                name: 'miami / 80s',
+                desc: 'Synthwave neon pink and electric cyber cyan.',
+                bg: '#181824', panel: '#222336', border: '#ff2a85', text: '#fdfdfd',
+                correct: '#00e5ff', present: '#ff2a85', absent: '#353752', keyBg: '#2a2b42'
+            },
+            'botanical': {
+                name: 'botanical',
+                desc: 'Herbal forest greens and golden meadow wild flowers.',
+                bg: '#1e2d24', panel: '#273b30', border: '#496b58', text: '#e1e8e3',
+                correct: '#83a592', present: '#d9b76c', absent: '#3a5445', keyBg: '#344a3c'
+            },
+            'midnight': {
+                name: 'midnight',
+                desc: 'Deep dark indigo slate with modern emerald accents.',
+                bg: '#0f172a', panel: '#1e293b', border: '#334155', text: '#f8fafc',
+                correct: '#22c55e', present: '#eab308', absent: '#334155', keyBg: '#475569'
+            },
+            'rose pine': {
+                name: 'rose pine',
+                desc: 'All-natural pine, bougainvillea, and soft gold.',
+                bg: '#191724', panel: '#26233a', border: '#eb6f92', text: '#e0def4',
+                correct: '#9ccfd8', present: '#f6c177', absent: '#393552', keyBg: '#2a283e'
+            },
+            'carbon': {
+                name: 'carbon',
+                desc: 'Industrial carbon graphite with blaze orange highlights.',
+                bg: '#313131', panel: '#2b2b2b', border: '#f66e0d', text: '#f5e6c8',
+                correct: '#f66e0d', present: '#d9a566', absent: '#474747', keyBg: '#3d3d3d'
+            },
+            'milkshake': {
+                name: 'milkshake',
+                desc: 'Creamy vanilla milkshake clean light theme.',
+                bg: '#ffffff', panel: '#f7f7f7', border: '#525252', text: '#212121',
+                correct: '#599b76', present: '#db9853', absent: '#b0b0b0', keyBg: '#e6e6e6'
+            },
+            'magic girl': {
+                name: 'magic girl',
+                desc: 'Pastel magical anime aesthetics with sweet strawberry pink.',
+                bg: '#ffffff', panel: '#ffe5ec', border: '#f5b1cc', text: '#000000',
+                correct: '#ff70a6', present: '#ffd166', absent: '#d8b4e2', keyBg: '#ffe5ec'
+            },
+            'paper': {
+                name: 'paper',
+                desc: 'Newsprint and textbook printed paper aesthetics.',
+                bg: '#eeeeee', panel: '#e0e0e0', border: '#444444', text: '#333333',
+                correct: '#4b8b3b', present: '#c5922a', absent: '#9e9e9e', keyBg: '#d4d4d4'
+            },
+            'dim': {
+                name: 'dim',
+                desc: 'Low-contrast gentle dark mode for late night gaming.',
+                bg: '#1c1d1e', panel: '#252627', border: '#4a4b4d', text: '#d8d9da',
+                correct: '#4e9b6a', present: '#c4a04d', absent: '#3e3f41', keyBg: '#38393b'
+            },
+            'mint': {
+                name: 'mint',
+                desc: 'Cool spearmint and deep oceanic water glow.',
+                bg: '#053838', panel: '#084d4d', border: '#26d6d6', text: '#e6ffff',
+                correct: '#26d6d6', present: '#e6c34d', absent: '#145c5c', keyBg: '#116161'
+            },
+            'stealth': {
+                name: 'stealth',
+                desc: 'Near-monochrome tactical shadow aesthetic.',
+                bg: '#010101', panel: '#111111', border: '#222222', text: '#888888',
+                correct: '#555555', present: '#444444', absent: '#222222', keyBg: '#1c1c1c'
+            },
+            'coffee': {
+                name: 'coffee / tiramisu',
+                desc: 'Rich roasted espresso beans, cocoa, and mascarpone.',
+                bg: '#2b211b', panel: '#382b24', border: '#806352', text: '#e6d7cc',
+                correct: '#a87852', present: '#d9b48f', absent: '#47372e', keyBg: '#42342b'
+            },
+            'lavender': {
+                name: 'lavender',
+                desc: 'Soft aromatic floral purple and gentle dusk.',
+                bg: '#242233', panel: '#302d45', border: '#b4a1db', text: '#ede8f5',
+                correct: '#b4a1db', present: '#ebd073', absent: '#403c5c', keyBg: '#3a3654'
+            },
+            'bento': {
+                name: 'bento',
+                desc: 'Japanese lacquer box with salmon and indigo.',
+                bg: '#2d394d', panel: '#394760', border: '#ff7a90', text: '#fffaf8',
+                correct: '#ff7a90', present: '#ffd166', absent: '#485977', keyBg: '#425370'
+            }
+        };
+
+        let activeThemeKey = localStorage.getItem('retro_theme_key') || 'wordle';
+        let previewThemeKey = activeThemeKey;
+
+        function buildThemeGrid() {
+            const grid = document.getElementById('themePresetGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+
+            Object.entries(THEMES).forEach(([key, t]) => {
+                const btn = document.createElement('button');
+                const isSelected = key === previewThemeKey;
+                btn.className = `flex items-center justify-between p-2 rounded-lg border text-left transition text-xs font-bold ${
+                    isSelected ? 'border-[#e04343] ring-1 ring-[#e04343]' : 'border-zinc-700 hover:border-zinc-500'
+                }`;
+                btn.style.backgroundColor = t.bg;
+                btn.style.color = t.text;
+
+                btn.innerHTML = `
+                    <span class="truncate max-w-[85px]">${t.name}</span>
+                    <div class="flex items-center gap-1 shrink-0 ml-1">
+                        <span class="w-2 h-2 rounded-full" style="background-color: ${t.correct}"></span>
+                        <span class="w-2 h-2 rounded-full" style="background-color: ${t.present}"></span>
+                        <span class="w-2 h-2 rounded-full" style="background-color: ${t.absent}"></span>
+                    </div>
+                `;
+
+                btn.addEventListener('click', () => previewTheme(key, true));
+                grid.appendChild(btn);
+            });
+        }
+
+        function previewTheme(key, playAudio = false) {
+            if (playAudio) sound.pop();
+            previewThemeKey = key;
+            const t = THEMES[key];
+            if (!t) return;
+
+            buildThemeGrid();
+
+            document.getElementById('previewThemeTitle').textContent = t.name;
+            document.getElementById('selectedThemeName').textContent = t.name;
+            document.getElementById('selectedThemeDesc').textContent = t.desc;
+
+            // Swatches
+            document.getElementById('swatchEmpty').style.backgroundColor = t.bg;
+            document.getElementById('swatchCorrect').style.backgroundColor = t.correct;
+            document.getElementById('swatchPresent').style.backgroundColor = t.present;
+            document.getElementById('swatchAbsent').style.backgroundColor = t.absent;
+
+            document.getElementById('swatchBg').style.backgroundColor = t.bg;
+            document.getElementById('swatchPanel').style.backgroundColor = t.panel;
+            document.getElementById('swatchText').style.backgroundColor = t.text;
+            document.getElementById('swatchKey').style.backgroundColor = t.keyBg;
+
+            const box = document.getElementById('livePreviewContainer');
+            if (box) {
+                box.style.backgroundColor = t.bg;
+                box.style.color = t.text;
+            }
+
+            const dots = document.getElementById('selectedThemeDots');
+            if (dots) {
+                dots.innerHTML = `
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${t.correct}"></span>
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${t.present}"></span>
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${t.absent}"></span>
+                `;
+            }
+        }
+
+        function applySelectedTheme() {
+            sound.pop();
+            const t = THEMES[previewThemeKey];
+            if (!t) return;
+
+            activeThemeKey = previewThemeKey;
+            localStorage.setItem('retro_theme_key', activeThemeKey);
+
+            applyThemeObject(t);
+            toggleThemeDrawer(false);
+            showToast(`Theme: ${t.name}`);
+        }
+
+        function applyThemeObject(t) {
+            const root = document.documentElement;
+            root.style.setProperty('--bg-canvas', t.bg);
+            root.style.setProperty('--panel-bg', t.panel);
+            root.style.setProperty('--panel-border', t.border);
+            root.style.setProperty('--text-main', t.text);
+
+            root.style.setProperty('--tile-empty', t.panel);
+            root.style.setProperty('--tile-border', t.border);
+            root.style.setProperty('--tile-correct', t.correct);
+            root.style.setProperty('--tile-present', t.present);
+            root.style.setProperty('--tile-absent', t.absent);
+
+            root.style.setProperty('--key-bg', t.keyBg);
+            root.style.setProperty('--key-border', t.border);
+            root.style.setProperty('--key-text', t.text);
+        }
+
+        function resetToOfficialTheme() {
+            sound.pop();
+            previewTheme('wordle', false);
+            applySelectedTheme();
+        }
+
+        function toggleThemeDrawer(playAudio = true) {
+            if (playAudio) sound.pop();
+            const drawer = document.getElementById('themeDrawer');
+            if (drawer.classList.contains('drawer-closed')) {
+                drawer.classList.remove('drawer-closed');
+                drawer.classList.add('drawer-open');
+                previewTheme(activeThemeKey, false);
+            } else {
+                drawer.classList.add('drawer-closed');
+                drawer.classList.remove('drawer-open');
+            }
+        }
+
+        function switchThemeTab(tab) {
+            const pView = document.getElementById('presetView');
+            const cView = document.getElementById('customView');
+            const pBtn = document.getElementById('tabPresetBtn');
+            const cBtn = document.getElementById('tabCustomBtn');
+
+            if (tab === 'preset') {
+                pView.classList.remove('hidden');
+                cView.classList.add('hidden');
+                pBtn.className = 'px-3.5 py-1.5 rounded-md bg-[#e04343] text-white transition';
+                cBtn.className = 'px-3.5 py-1.5 text-zinc-400 hover:text-white transition';
+            } else {
+                pView.classList.add('hidden');
+                cView.classList.remove('hidden');
+                cBtn.className = 'px-3.5 py-1.5 rounded-md bg-[#e04343] text-white transition';
+                pBtn.className = 'px-3.5 py-1.5 text-zinc-400 hover:text-white transition';
+            }
+        }
+
+        function previewCustomColors() {
+            const custom = {
+                name: 'custom user theme',
+                desc: 'Your personalized custom palette.',
+                bg: document.getElementById('customBgPicker').value,
+                panel: document.getElementById('customPanelPicker').value,
+                border: '#444444',
+                text: document.getElementById('customTextPicker').value,
+                correct: document.getElementById('customCorrectPicker').value,
+                present: document.getElementById('customPresentPicker').value,
+                absent: document.getElementById('customAbsentPicker').value,
+                keyBg: document.getElementById('customKeyPicker').value
+            };
+            THEMES['custom'] = custom;
+            previewTheme('custom');
+            switchThemeTab('preset');
+        }
+
+        /**
+         * 2. HOWLER.JS SOUND ENGINE (https://howlerjs.com/)
+         * High fidelity audio design using Howler.js with base64 data URIs and local WAV fallbacks.
+         * Includes an emergency Web Audio oscillator synth fallback if offline CDN fails.
+         */
+        class HowlerSoundManager {
+            constructor() {
+                this.enabled = localStorage.getItem('retro_sound_enabled') !== 'false';
+                this.sounds = {};
+                this.initialized = false;
+                this.synthCtx = null;
+            }
+
+            init() {
+                if (this.initialized) return;
+                
+                const data = window.HOWLER_AUDIO_DATA || {};
+
+                // Use Howler.js if available
+                if (typeof Howl !== 'undefined') {
+                    const makeHowl = (key, fallbackFile, vol) => {
+                        const srcArr = [];
+                        if (data && data[key]) {
+                            srcArr.push(data[key]);
+                        }
+                        srcArr.push(fallbackFile);
+                        return new Howl({
+                            src: srcArr,
+                            format: ['wav'],
+                            volume: vol,
+                            preload: true,
+                            html5: false
+                        });
+                    };
+
+                    try {
+                        this.sounds = {
+                            key: makeHowl('key', 'sound_key.wav', 0.55),
+                            backspace: makeHowl('backspace', 'sound_backspace.wav', 0.65),
+                            correct: makeHowl('correct', 'sound_correct.wav', 0.8),
+                            present: makeHowl('present', 'sound_present.wav', 0.7),
+                            absent: makeHowl('absent', 'sound_absent.wav', 0.5),
+                            buzz: makeHowl('buzz', 'sound_buzz.wav', 0.6),
+                            win: makeHowl('win', 'sound_win.wav', 0.85),
+                            pop: makeHowl('pop', 'sound_pop.wav', 0.65)
+                        };
+                        this.initialized = true;
+                        Howler.mute(!this.enabled);
+                        this.updateUI();
+                        return;
+                    } catch (e) {
+                        console.warn('Howler.js audio initialization error, falling back to Web Audio:', e);
+                    }
+                }
+
+                // Fallback: Web Audio API Synthesizer
+                this.initSynth();
+                this.initialized = true;
+                this.updateUI();
+            }
+
+            initSynth() {
+                if (!this.synthCtx) {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) this.synthCtx = new AC();
+                }
+                if (this.synthCtx && this.synthCtx.state === 'suspended') {
+                    this.synthCtx.resume();
+                }
+            }
+
+            playSynthTone(freq, type = 'square', duration = 0.05, gain = 0.08) {
+                if (!this.enabled) return;
+                this.initSynth();
+                if (!this.synthCtx) return;
+                try {
+                    const osc = this.synthCtx.createOscillator();
+                    const g = this.synthCtx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.synthCtx.currentTime);
+                    g.gain.setValueAtTime(gain, this.synthCtx.currentTime);
+                    g.gain.exponentialRampToValueAtTime(0.0001, this.synthCtx.currentTime + duration);
+                    osc.connect(g);
+                    g.connect(this.synthCtx.destination);
+                    osc.start();
+                    osc.stop(this.synthCtx.currentTime + duration);
+                } catch (e) {}
+            }
+
+            toggle() {
+                if (!this.initialized) this.init();
+                this.enabled = !this.enabled;
+                localStorage.setItem('retro_sound_enabled', this.enabled);
+                if (typeof Howler !== 'undefined') {
+                    Howler.mute(!this.enabled);
+                }
+                this.updateUI();
+                if (this.enabled) {
+                    this.key();
+                    showToast('Sound: Enabled 🔊', 1200);
+                } else {
+                    showToast('Sound: Muted 🔇', 1200);
+                }
+            }
+
+            updateUI() {
+                const icon = document.getElementById('soundIcon');
+                if (icon) {
+                    icon.textContent = this.enabled ? '🔊' : '🔇';
+                }
+            }
+
+            play(name) {
+                if (!this.enabled) return;
+                if (!this.initialized) this.init();
+
+                // If Howler is active and has sound
+                if (this.sounds && this.sounds[name]) {
+                    if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
+                        Howler.ctx.resume();
+                    }
+                    this.sounds[name].play();
+                    return;
+                }
+
+                // Fallback synth sounds
+                switch (name) {
+                    case 'key': this.playSynthTone(480, 'square', 0.03, 0.04); break;
+                    case 'backspace': this.playSynthTone(200, 'triangle', 0.05, 0.06); break;
+                    case 'buzz': this.playSynthTone(130, 'sawtooth', 0.18, 0.1); break;
+                    case 'correct': this.playSynthTone(880, 'triangle', 0.22, 0.12); break;
+                    case 'present': this.playSynthTone(554, 'triangle', 0.18, 0.1); break;
+                    case 'absent': this.playSynthTone(260, 'square', 0.08, 0.06); break;
+                    case 'win':
+                        [523, 659, 784, 1046].forEach((f, i) => {
+                            setTimeout(() => this.playSynthTone(f, 'triangle', 0.2, 0.12), i * 90);
+                        });
+                        break;
+                    case 'pop': this.playSynthTone(750, 'sine', 0.06, 0.08); break;
+                }
+            }
+
+            key() { this.play('key'); }
+            backspace() { this.play('backspace'); }
+            buzz() { this.play('buzz'); }
+            pop() { this.play('pop'); }
+            reveal(state) {
+                if (state === 'correct') this.play('correct');
+                else if (state === 'present') this.play('present');
+                else this.play('absent');
+            }
+            fanfare() { this.play('win'); }
+        }
+
+        const sound = new HowlerSoundManager();
+
+        /**
+         * 3. WORDS DICTIONARY (2,499 Target Words from words.csv + 14,855 Valid Words)
+         */
+        const FALLBACK_WORDS = [
+            "DUNCE", "CRANE", "SLATE", "AUDIO", "STARE", "ROAST", "PILOT", "SPARK", "BLAZE", "GHOST",
+            "FLAME", "BRAVE", "CROWN", "DREAM", "EARTH", "FROST", "GRAPE", "HEART", "IVORY", "JOKER",
+            "KNIFE", "LEMON", "MAGIC", "NIGHT", "OCEAN", "PIANO", "QUEEN", "RIVER", "STORM", "TIGER",
+            "ULTRA", "VIVID", "WHALE", "YACHT", "ZEBRA", "ACORN", "BEACH", "CABIN", "DANCE", "EAGLE",
+            "BOMBS", "PLAYS", "CALLS", "NICER", "ABOUT", "OTHER", "WHICH", "THEIR", "THERE", "FIRST"
+        ];
+
+        let TARGET_WORDS = (window.WORDLE_TARGET_WORDS && window.WORDLE_TARGET_WORDS.length > 0)
+            ? window.WORDLE_TARGET_WORDS
+            : FALLBACK_WORDS;
+
+        let VALID_WORDS = (window.WORDLE_VALID_WORDS && window.WORDLE_VALID_WORDS.size > 0)
+            ? window.WORDLE_VALID_WORDS
+            : new Set(TARGET_WORDS);
+
+        fetch('words.csv')
+            .then(r => r.text())
+            .then(csv => {
+                const lines = csv.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('1,2'));
+                const list = lines.map(l => l.split(',').join('').toUpperCase()).filter(w => w.length === 5);
+                if (list.length > 100) {
+                    TARGET_WORDS = list;
+                    list.forEach(w => VALID_WORDS.add(w));
+                }
+            })
+            .catch(() => {});
+
+        function getRandomWord() {
+            return TARGET_WORDS[Math.floor(Math.random() * TARGET_WORDS.length)];
+        }
+
+        function evaluateGuess(guess, target) {
+            const result = Array(5).fill('absent');
+            const targetChars = target.split('');
+            const guessChars = guess.split('');
+
+            for (let i = 0; i < 5; i++) {
+                if (guessChars[i] === targetChars[i]) {
+                    result[i] = 'correct';
+                    targetChars[i] = null;
+                    guessChars[i] = null;
+                }
+            }
+
+            for (let i = 0; i < 5; i++) {
+                if (guessChars[i] !== null) {
+                    const idx = targetChars.indexOf(guessChars[i]);
+                    if (idx !== -1) {
+                        result[i] = 'present';
+                        targetChars[idx] = null;
+                    }
+                }
+            }
+            return result;
+        }
+
+        /**
+         * 4. GAME STATE
+         */
+        let secretWord = getRandomWord();
+        let guesses = [];
+        let evaluations = [];
+        let currentGuess = '';
+        let gameStatus = 'playing';
+        let keyStates = {};
+        let isFlipping = false;
+        let roomCode = null;
+
+        // Opponent
+        let opponent = {
+            name: 'Alex (AI)',
+            evaluations: [],
+            status: 'playing',
+            isBot: true
+        };
+        let botInterval = null;
+
+        /**
+         * 5. SERVERLESS WEBRTC MULTIPLAYER (PeerJS + BroadcastChannel)
+         */
+        let peer = null;
+        let p2pConn = null;
+        let broadcastChannel = null;
+
+        function initMultiplayer(createAsHost = true, targetCode = null) {
+            const code = (targetCode || Math.random().toString(36).substring(2, 7)).toUpperCase();
+            roomCode = code;
+
+            if (broadcastChannel) broadcastChannel.close();
+            try {
+                broadcastChannel = new BroadcastChannel('wordle_p2p_' + code);
+                broadcastChannel.onmessage = (e) => handleNetwork(e.data);
+            } catch (e) {}
+
+            if (typeof Peer === 'undefined') {
+                showToast('Multiplayer connecting...');
+                return;
+            }
+
+            const myId = createAsHost
+                ? `wordle-room-${code}-host`
+                : `wordle-room-${code}-guest-${Math.random().toString(36).substring(2, 5)}`;
+
+            if (peer) {
+                try { peer.destroy(); } catch (e) {}
+            }
+
+            peer = new Peer(myId, {
+                debug: 1,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
+            });
+
+            peer.on('open', () => {
+                showToast(createAsHost ? `Room created: ${code}` : `Joined room ${code}!`);
+                document.getElementById('duelMiniContainer').classList.remove('hidden');
+                if (!createAsHost) {
+                    const conn = peer.connect(`wordle-room-${code}-host`);
+                    setupPeerHandlers(conn);
+                }
+            });
+
+            peer.on('connection', (conn) => {
+                setupPeerHandlers(conn);
+                document.getElementById('duelMiniContainer').classList.remove('hidden');
+                setTimeout(() => {
+                    sendNetwork({
+                        type: 'HOST_SYNC',
+                        secretWord: secretWord
+                    });
+                }, 300);
+            });
+        }
+
+        function setupPeerHandlers(conn) {
+            p2pConn = conn;
+            conn.on('open', () => {
+                showToast('Opponent connected to duel!');
+                opponent.name = 'Friend';
+                opponent.isBot = false;
+                document.getElementById('opponentStatus').textContent = opponent.name;
+                if (botInterval) clearInterval(botInterval);
+            });
+            conn.on('data', (d) => handleNetwork(d));
+            conn.on('close', () => {
+                showToast('Opponent disconnected');
+            });
+        }
+
+        function sendNetwork(d) {
+            if (p2pConn && p2pConn.open) p2pConn.send(d);
+            if (broadcastChannel) broadcastChannel.postMessage(d);
+        }
+
+        function handleNetwork(data) {
+            if (!data || !data.type) return;
+
+            switch (data.type) {
+                case 'HOST_SYNC':
+                    secretWord = data.secretWord;
+                    opponent.name = 'Host';
+                    opponent.isBot = false;
+                    resetGame(false);
+                    showToast('Game synced with Host!');
+                    break;
+
+                case 'OPPONENT_GUESS':
+                    opponent.evaluations.push(data.evaluation);
+                    renderOpponentMiniGrid();
+                    if (data.won) {
+                        opponent.status = 'won';
+                        showToast(`🔥 ${opponent.name} solved the word!`);
+                    }
+                    break;
+
+                case 'REMATCH_START':
+                    secretWord = data.secretWord;
+                    resetGame(false);
+                    closeModal();
+                    showToast('Rematch started!');
+                    break;
+            }
+        }
+
+        /**
+         * 6. BOARD RENDERING
+         */
+        function renderBoardSkeleton() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            for (let r = 0; r < 6; r++) {
+                const rowEl = document.createElement('div');
+                rowEl.className = 'grid grid-cols-5 gap-[6px]';
+                rowEl.id = `row-${r}`;
+                for (let c = 0; c < 5; c++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'tile';
+                    tile.id = `tile-${r}-${c}`;
+                    rowEl.appendChild(tile);
+                }
+                boardEl.appendChild(rowEl);
+            }
+        }
+
+        function syncBoard(animateLast = false) {
+            for (let r = 0; r < 6; r++) {
+                const isSubmitted = r < guesses.length;
+                const isCurrent = r === guesses.length && gameStatus === 'playing';
+                const word = isSubmitted ? guesses[r] : (isCurrent ? currentGuess : '');
+                const evalRow = isSubmitted ? evaluations[r] : null;
+
+                for (let c = 0; c < 5; c++) {
+                    const tile = document.getElementById(`tile-${r}-${c}`);
+                    const char = word[c] || '';
+
+                    if (!(animateLast && r === guesses.length - 1)) {
+                        tile.className = 'tile';
+                        tile.textContent = char;
+                        if (isSubmitted && evalRow) {
+                            tile.classList.add(`state-${evalRow[c]}`);
+                        } else if (char) {
+                            tile.classList.add('filled');
+                        }
+                    }
+                }
+            }
+
+            updateKeyboardUI();
+        }
+
+        function updateKeyboardUI() {
+            const buttons = document.querySelectorAll('#keyboard button[data-key]');
+            buttons.forEach(btn => {
+                const key = btn.getAttribute('data-key');
+                if (key.length === 1) {
+                    btn.classList.remove('state-correct', 'state-present', 'state-absent');
+                    const state = keyStates[key];
+                    if (state) btn.classList.add(`state-${state}`);
+                }
+            });
+        }
+
+        function renderOpponentMiniGrid() {
+            const grid = document.getElementById('opponentMiniGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            for (let r = 0; r < 6; r++) {
+                const row = document.createElement('div');
+                row.className = 'mini-row';
+                const evalRow = opponent.evaluations[r];
+                for (let c = 0; c < 5; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'mini-cell' + (evalRow ? ` ${evalRow[c]}` : '');
+                    row.appendChild(cell);
+                }
+                grid.appendChild(row);
+            }
+        }
+
+        /**
+         * 7. STRICT INPUT & DICTIONARY VALIDATION
+         */
+        function handleKey(key) {
+            if (isFlipping || gameStatus !== 'playing') return;
+
+            if (key === 'BACKSPACE') {
+                if (currentGuess.length > 0) {
+                    currentGuess = currentGuess.slice(0, -1);
+                    sound.backspace();
+                    syncBoard(false);
+                }
+                return;
+            }
+
+            if (key === 'ENTER') {
+                submitGuess();
+                return;
+            }
+
+            if (/^[A-Z]$/.test(key) && currentGuess.length < 5) {
+                currentGuess += key;
+                sound.key();
+                syncBoard(false);
+            }
+        }
+
+        function submitGuess() {
+            const rowIdx = guesses.length;
+
+            if (currentGuess.length < 5) {
+                shakeRow(rowIdx);
+                sound.buzz();
+                showToast('Not enough letters');
+                return;
+            }
+
+            // STRICT VALIDATION: Fake words (like ABCDE, ZZZZZ) are completely rejected!
+            if (!VALID_WORDS.has(currentGuess)) {
+                shakeRow(rowIdx);
+                sound.buzz();
+                showToast('Not in word list');
+                return;
+            }
+
+            const guess = currentGuess;
+            const evalResult = evaluateGuess(guess, secretWord);
+            guesses.push(guess);
+            evaluations.push(evalResult);
+            currentGuess = '';
+
+            const priority = { correct: 3, present: 2, absent: 1 };
+            for (let i = 0; i < 5; i++) {
+                const letter = guess[i];
+                const newState = evalResult[i];
+                const oldState = keyStates[letter];
+                if (!oldState || priority[newState] > priority[oldState]) {
+                    keyStates[letter] = newState;
+                }
+            }
+
+            sendNetwork({
+                type: 'OPPONENT_GUESS',
+                row: rowIdx,
+                evaluation: evalResult,
+                won: guess === secretWord
+            });
+
+            animateReveal(rowIdx, guess, evalResult, () => {
+                if (guess === secretWord) {
+                    gameStatus = 'won';
+                    recordStat(true, guesses.length);
+                    bounceRow(rowIdx);
+                    sound.fanfare();
+                    if (typeof confetti === 'function') confetti({ particleCount: 90, spread: 65, origin: { y: 0.6 } });
+                    showToast('Splendid! You won!', 3000);
+                    setTimeout(() => showGameEndModal(true), 1300);
+                } else if (guesses.length >= 6) {
+                    gameStatus = 'lost';
+                    recordStat(false, 6);
+                    sound.buzz();
+                    showToast(`The word was ${secretWord}`, 4000);
+                    setTimeout(() => showGameEndModal(false), 1500);
+                }
+                updateKeyboardUI();
+            });
+        }
+
+        function animateReveal(rowIdx, guess, evaluation, onDone) {
+            isFlipping = true;
+            for (let c = 0; c < 5; c++) {
+                const tile = document.getElementById(`tile-${rowIdx}-${c}`);
+                setTimeout(() => {
+                    tile.classList.add('flip');
+                    sound.reveal(evaluation[c]);
+                    setTimeout(() => {
+                        tile.classList.remove('filled');
+                        tile.classList.add(`state-${evaluation[c]}`);
+                    }, 275);
+                }, c * 200);
+            }
+
+            setTimeout(() => {
+                isFlipping = false;
+                if (onDone) onDone();
+            }, 5 * 200 + 350);
+        }
+
+        function shakeRow(rowIdx) {
+            const row = document.getElementById(`row-${rowIdx}`);
+            if (!row) return;
+            row.classList.remove('row-shake');
+            void row.offsetWidth;
+            row.classList.add('row-shake');
+        }
+
+        function bounceRow(rowIdx) {
+            for (let c = 0; c < 5; c++) {
+                const tile = document.getElementById(`tile-${rowIdx}-${c}`);
+                setTimeout(() => tile.classList.add('bounce'), c * 80);
+            }
+        }
+
+        function showToast(msg, duration = 1800) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'pixel-frame px-4 py-2 font-bold text-xs shadow-2xl transition-opacity duration-300';
+            toast.style.backgroundColor = 'var(--panel-bg)';
+            toast.style.color = 'var(--text-main)';
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        /**
+         * 8. STATS & LIVE NEXT WORD COUNTDOWN TIMER
+         */
+        function getStats() {
+            const raw = localStorage.getItem('retro_wordle_stats_v3');
+            if (raw) {
+                try { return JSON.parse(raw); } catch (e) {}
+            }
+            return { played: 12, won: 8, streak: 3, maxStreak: 5, guesses: {1:0, 2:1, 3:3, 4:2, 5:2, 6:0} };
+        }
+
+        function recordStat(won, count) {
+            const s = getStats();
+            s.played++;
+            if (won) {
+                s.won++;
+                s.streak++;
+                s.maxStreak = Math.max(s.maxStreak, s.streak);
+                s.guesses[count] = (s.guesses[count] || 0) + 1;
+            } else {
+                s.streak = 0;
+            }
+            localStorage.setItem('retro_wordle_stats_v3', JSON.stringify(s));
+            updateStatsUI();
+        }
+
+        function updateStatsUI() {
+            const s = getStats();
+            const winPct = s.played > 0 ? Math.round((s.won / s.played) * 100) : 0;
+
+            // Top Header Stats
+            document.getElementById('statPlayedCount').textContent = s.played;
+            document.getElementById('statWonCount').textContent = s.won;
+            document.getElementById('statStreakCount').textContent = s.streak;
+
+            // Right Panel Stats
+            document.getElementById('statPanelPlayed').textContent = s.played;
+            document.getElementById('statPanelWon').textContent = s.won;
+            document.getElementById('statPanelStreak').textContent = s.streak;
+            document.getElementById('statPanelWinPct').textContent = `${winPct}%`;
+        }
+
+        // Live Next Word Timer (Ticking down to next round)
+        function updateCountdownClock() {
+            const now = new Date();
+            const midnight = new Date(now);
+            midnight.setUTCHours(24, 0, 0, 0);
+            let diff = midnight - now;
+            if (diff < 0) diff += 86400000;
+
+            const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+            const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+            const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+
+            const el = document.getElementById('nextWordCountdown');
+            if (el) el.textContent = `${h}:${m}:${s}`;
+        }
+        setInterval(updateCountdownClock, 1000);
+
+        /**
+         * 9. MODALS & MULTIPLAYER
+         */
+        function openModal(html) {
+            sound.pop();
+            const overlay = document.getElementById('modalOverlay');
+            const content = document.getElementById('modalContent');
+            content.innerHTML = html;
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+        }
+
+        function closeModal() {
+            sound.pop();
+            const overlay = document.getElementById('modalOverlay');
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
+
+        function showStatsModal() {
+            const s = getStats();
+            const winPct = s.played > 0 ? Math.round((s.won / s.played) * 100) : 0;
+            const maxVal = Math.max(1, ...Object.values(s.guesses || {}));
+
+            let guessDistHtml = '';
+            for (let i = 1; i <= 6; i++) {
+                const count = (s.guesses && s.guesses[i]) || 0;
+                const pct = Math.max(8, Math.round((count / maxVal) * 100));
+                guessDistHtml += `
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="w-3 font-mono text-zinc-400 font-bold">${i}</span>
+                        <div class="flex-1 bg-black/40 rounded overflow-hidden h-4 flex items-center border border-[var(--panel-border)]">
+                            <div class="h-full px-1.5 flex items-center justify-end text-[10px] font-bold text-white transition-all duration-500" style="width: ${pct}%; background-color: var(--tile-correct); min-width: 18px;">
+                                ${count}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            openModal(`
+                <div class="flex justify-between items-center mb-3 pb-2 border-b border-[var(--panel-border)]">
+                    <h2 class="pixel-font text-base font-bold">STATISTICS</h2>
+                    <button onclick="closeModal()" class="text-xl font-bold px-1 text-zinc-400 hover:text-white">&times;</button>
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 text-center mb-4 p-3 bg-black/30 rounded-xl border border-[var(--panel-border)]">
+                    <div>
+                        <div class="text-xl font-bold text-white">${s.played}</div>
+                        <div class="text-[9px] uppercase tracking-wider text-zinc-400">Played</div>
+                    </div>
+                    <div>
+                        <div class="text-xl font-bold text-white">${s.won}</div>
+                        <div class="text-[9px] uppercase tracking-wider text-zinc-400">Won</div>
+                    </div>
+                    <div>
+                        <div class="text-xl font-bold text-white">${winPct}%</div>
+                        <div class="text-[9px] uppercase tracking-wider text-zinc-400">Win %</div>
+                    </div>
+                    <div>
+                        <div class="text-xl font-bold text-white">${s.streak}</div>
+                        <div class="text-[9px] uppercase tracking-wider text-zinc-400">Streak</div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <span class="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">GUESS DISTRIBUTION</span>
+                    <div class="space-y-1.5">
+                        ${guessDistHtml}
+                    </div>
+                </div>
+
+                <button onclick="closeModal()" class="w-full py-2 text-xs font-bold rounded-xl border border-[var(--panel-border)] bg-black/20 text-white hover:brightness-125 transition">
+                    Close
+                </button>
+            `);
+        }
+
+        function showMultiplayerModal() {
+            const code = roomCode || Math.random().toString(36).substring(2, 7).toUpperCase();
+            const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
+
+            openModal(`
+                <div class="flex justify-between items-center mb-3 pb-2 border-b border-[var(--panel-border)]">
+                    <h2 class="pixel-font text-base font-bold">MULTIPLAYER 1v1 DUEL</h2>
+                    <button onclick="closeModal()" class="text-xl font-bold px-1 text-zinc-400 hover:text-white">&times;</button>
+                </div>
+
+                <div class="p-3.5 rounded-xl border border-[var(--panel-border)] bg-black/30 mb-3">
+                    <span class="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Share Room Link</span>
+                    <p class="text-[11px] text-zinc-300 mb-2">Hosted on Vercel with zero backend! Play in real time.</p>
+                    <div class="flex gap-2">
+                        <input id="roomLinkInput" type="text" readonly value="${url}" class="flex-1 bg-black/40 border border-[var(--panel-border)] rounded px-2.5 py-1.5 text-xs font-mono select-all text-white" />
+                        <button id="copyLinkBtn" class="px-3.5 py-1.5 text-xs font-bold rounded transition" style="background-color: var(--tile-correct); color: #fff;">
+                            Copy
+                        </button>
+                    </div>
+                    <div class="text-[10px] font-mono text-zinc-400 mt-2">ROOM CODE: <strong class="text-emerald-400">${code}</strong></div>
+                </div>
+
+                <div class="p-3.5 rounded-xl border border-[var(--panel-border)] bg-black/30 mb-3">
+                    <span class="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Join Room</span>
+                    <div class="flex gap-2">
+                        <input id="joinInputCode" type="text" maxlength="6" placeholder="Enter Room Code" class="flex-1 bg-black/40 border border-[var(--panel-border)] rounded px-2.5 py-1.5 text-xs uppercase font-mono text-white focus:outline-none" />
+                        <button id="joinConfirmBtn" class="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-1.5 text-xs font-bold rounded transition">
+                            Join
+                        </button>
+                    </div>
+                </div>
+
+                <button onclick="closeModal()" class="w-full py-2 text-xs font-bold rounded-xl border border-[var(--panel-border)] bg-black/20 text-white hover:brightness-125 transition">
+                    Back to Game
+                </button>
+            `);
+
+            document.getElementById('copyLinkBtn').addEventListener('click', () => {
+                const input = document.getElementById('roomLinkInput');
+                input.select();
+                navigator.clipboard.writeText(input.value);
+                showToast('Room link copied!');
+                if (!roomCode) initMultiplayer(true, code);
+            });
+
+            document.getElementById('joinConfirmBtn').addEventListener('click', () => {
+                const target = document.getElementById('joinInputCode').value.trim();
+                if (target) {
+                    initMultiplayer(false, target);
+                    closeModal();
+                }
+            });
+        }
+
+        function showGameEndModal(won) {
+            const scoreEmoji = generateScoreText();
+
+            openModal(`
+                <div class="text-center mb-3">
+                    <h2 class="pixel-font text-xl font-bold mb-1">${won ? 'VICTORY!' : 'GAME OVER'}</h2>
+                    <p class="text-xs text-zinc-400">${won ? `Solved in ${guesses.length}/6 attempts` : 'Out of guesses'}</p>
+                </div>
+
+                <div class="p-3.5 rounded-xl border border-[var(--panel-border)] bg-black/30 text-center mb-3">
+                    <span class="text-[10px] font-bold uppercase text-zinc-400 block mb-1">Secret Word</span>
+                    <span class="pixel-font text-2xl font-bold tracking-widest" style="color: var(--tile-correct);">${secretWord}</span>
+                    <a href="https://www.google.com/search?q=define+${secretWord}" target="_blank" class="block text-[11px] underline text-zinc-400 hover:text-white mt-1">
+                        Lookup definition &rarr;
+                    </a>
+                </div>
+
+                <div class="p-3 bg-black/40 border border-[var(--panel-border)] rounded-xl text-center font-mono text-xs mb-3">
+                    ${scoreEmoji.replace(/\n/g, '<br>')}
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <button id="shareScoreBtn" class="w-full py-2.5 text-xs font-bold rounded-xl text-white transition" style="background-color: var(--tile-correct);">
+                        Share Result 📋
+                    </button>
+                    <button onclick="startFreshWord(); closeModal();" class="w-full py-2 text-xs font-bold rounded-xl border border-[var(--panel-border)] bg-black/20 text-white hover:brightness-125 transition">
+                        Play Next Word ▶
+                    </button>
+                </div>
+            `);
+
+            document.getElementById('shareScoreBtn').addEventListener('click', () => {
+                navigator.clipboard.writeText(scoreEmoji);
+                showToast('Score copied to clipboard!');
+            });
+        }
+
+        function generateScoreText() {
+            let t = `Wordle ${gameStatus === 'won' ? guesses.length : 'X'}/6\n\n`;
+            evaluations.forEach(r => {
+                r.forEach(v => {
+                    if (v === 'correct') t += '🟩';
+                    else if (v === 'present') t += '🟨';
+                    else t += '⬛';
+                });
+                t += '\n';
+            });
+            return t;
+        }
+
+        function startFreshWord() {
+            sound.pop();
+            resetGame(true);
+        }
+
+        function resetGame(notify = false) {
+            secretWord = getRandomWord();
+            guesses = [];
+            evaluations = [];
+            currentGuess = '';
+            gameStatus = 'playing';
+            keyStates = {};
+            isFlipping = false;
+
+            sendNetwork({
+                type: 'REMATCH_START',
+                secretWord: secretWord
+            });
+
+            syncBoard(false);
+            if (opponent.isBot) {
+                opponent.evaluations = [];
+                opponent.status = 'playing';
+                renderOpponentMiniGrid();
+            }
+
+            if (notify) showToast('New secret word ready!');
+        }
+
+        /**
+         * 10. INITIALIZATION
+         */
+        window.addEventListener('DOMContentLoaded', () => {
+            sound.init();
+            sound.updateUI();
+
+            // Unlock audio on first user gesture for zero delay
+            const unlockAudio = () => {
+                sound.init();
+                if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
+                    Howler.ctx.resume();
+                }
+            };
+            window.addEventListener('pointerdown', unlockAudio, { once: true });
+            window.addEventListener('keydown', unlockAudio, { once: true });
+
+            const initialTheme = THEMES[activeThemeKey] || THEMES['wordle'];
+            applyThemeObject(initialTheme);
+            buildThemeGrid();
+
+            renderBoardSkeleton();
+            renderOpponentMiniGrid();
+            syncBoard(false);
+            updateStatsUI();
+            updateCountdownClock();
+
+            const params = new URLSearchParams(window.location.search);
+            const roomParam = params.get('room');
+            if (roomParam) {
+                initMultiplayer(false, roomParam);
+            }
+
+            // Keyboard clicks
+            document.getElementById('keyboard').addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-key]');
+                if (!btn) return;
+                const k = btn.getAttribute('data-key');
+                btn.blur();
+                handleKey(k);
+            });
+
+            // Physical keyboard
+            window.addEventListener('keydown', (e) => {
+                const overlay = document.getElementById('modalOverlay');
+                if (!overlay.classList.contains('hidden')) {
+                    if (e.key === 'Escape') closeModal();
+                    return;
+                }
+                const drawer = document.getElementById('themeDrawer');
+                if (drawer && drawer.classList.contains('drawer-open')) {
+                    if (e.key === 'Escape') toggleThemeDrawer();
+                    return;
+                }
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleKey('ENTER');
+                } else if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    handleKey('BACKSPACE');
+                } else if (/^[a-zA-Z]$/.test(e.key)) {
+                    e.preventDefault();
+                    handleKey(e.key.toUpperCase());
+                }
+            });
+
+            // Modal overlay click outside to close
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target.id === 'modalOverlay') closeModal();
+            });
+        });
+    </script>
+</body>
+</html>
