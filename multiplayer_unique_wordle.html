@@ -508,10 +508,16 @@
 
         <!-- 1. TOP HEADER BAR (Exact proportions from reference) -->
         <header class="w-full max-w-[620px] pixel-frame px-3 sm:px-5 py-1.5 flex items-center justify-between mb-3.5 z-30">
-            <!-- Wordmark -->
-            <h1 class="pixel-font text-lg sm:text-xl font-bold tracking-widest cursor-pointer select-none" onclick="startFreshWord()">
-                WORDLE
-            </h1>
+            <!-- Wordmark & Player Name -->
+            <div class="flex items-center gap-2">
+                <h1 class="pixel-font text-lg sm:text-xl font-bold tracking-widest cursor-pointer select-none" onclick="startFreshWord()">
+                    WORDLE
+                </h1>
+                <button id="headerPlayerBtn" onclick="promptPlayerName(true)" title="Change player name" class="flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--panel-border)] bg-black/25 hover:brightness-125 transition text-[10px] font-mono font-bold text-emerald-400">
+                    <span class="text-xs">👤</span>
+                    <span id="headerPlayerName">PLAYER</span>
+                </button>
+            </div>
 
             <!-- Stats & Action Buttons (Vertical Dividers) -->
             <div class="flex items-center text-xs font-bold">
@@ -603,6 +609,10 @@
                             <span class="w-2 h-2 border border-[var(--panel-border)] shrink-0 mt-0.5 bg-zinc-300"></span>
                             <span>You have 6 attempts to find the word.</span>
                         </li>
+                        <li class="flex items-start gap-1.5 text-amber-300/90">
+                            <span class="w-2 h-2 border border-amber-400 shrink-0 mt-0.5 bg-amber-400"></span>
+                            <span>Strict Engine: Any revealed green or yellow letters must be used in subsequent guesses.</span>
+                        </li>
                     </ul>
                 </div>
 
@@ -614,7 +624,7 @@
                     </button>
                     <!-- Daily Mode / 1v1 Multiplayer Button -->
                     <button onclick="showMultiplayerModal()" class="w-full py-1.5 px-3 rounded text-[11px] font-bold tracking-wider uppercase border border-[var(--panel-border)] hover:brightness-125 transition active:scale-95" style="background-color: var(--tile-empty); color: var(--text-main);">
-                        DAILY MODE
+                        ⚔️ 1v1 DUEL ROOM
                     </button>
                 </div>
             </aside>
@@ -761,6 +771,42 @@
                     </div>
                 </div>
             </aside>
+        </div>
+
+        <!-- 3. LIVE MULTIPLAYER BOTTOM STATUS BAR (Shows room code & connected players) -->
+        <div id="livePlayersBottomBar" class="w-full max-w-[620px] pixel-frame mt-3 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-bold transition-all duration-300">
+            <div class="flex items-center gap-2">
+                <span class="relative flex h-2.5 w-2.5">
+                    <span id="livePulsePing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span id="livePulseDot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span class="text-[10px] sm:text-[11px] tracking-wide text-zinc-300 flex items-center gap-1.5 font-bold">
+                    <span>PLAYERS LIVE</span>
+                    <span id="liveRoomBadge" class="hidden px-1.5 py-0.5 text-[9px] rounded font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">ROOM: ---</span>
+                </span>
+            </div>
+
+            <!-- Connected Players Roster with guess progress -->
+            <div id="livePlayersRoster" class="flex items-center gap-2 text-[10px] sm:text-[11px] font-mono">
+                <div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-black/30 border border-[var(--panel-border)]">
+                    <span class="text-emerald-400">●</span>
+                    <span id="liveMyName" class="text-white font-bold cursor-pointer hover:underline" onclick="promptPlayerName(true)" title="Click to rename">YOU</span>
+                    <span id="liveMyProgress" class="text-[9px] text-zinc-400 ml-0.5">(0/6)</span>
+                </div>
+                <span class="text-zinc-500 font-sans text-[10px]">VS</span>
+                <div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-black/30 border border-[var(--panel-border)]">
+                    <span id="liveOpponentDot" class="text-zinc-500">●</span>
+                    <span id="liveOpponentName" class="text-zinc-400">Alex (AI)</span>
+                    <span id="liveOpponentProgress" class="text-[9px] text-zinc-500 ml-0.5">(0/6)</span>
+                </div>
+            </div>
+
+            <!-- Quick Room Action -->
+            <div class="flex items-center gap-1.5">
+                <button id="liveRoomActionBtn" onclick="showMultiplayerModal()" class="px-2.5 py-1 rounded text-[9.5px] font-bold uppercase tracking-wider border border-[var(--panel-border)] bg-black/20 hover:brightness-125 transition text-zinc-300">
+                    1v1 Room
+                </button>
+            </div>
         </div>
     </div>
 
@@ -1290,6 +1336,7 @@
         /**
          * 4. GAME STATE
          */
+        let playerName = localStorage.getItem('retro_wordle_player_name') || '';
         let secretWord = getRandomWord();
         let guesses = [];
         let evaluations = [];
@@ -1309,6 +1356,151 @@
         let botInterval = null;
 
         /**
+         * PLAYER NAME PROMPT (Calls on start so players see who it is)
+         */
+        function promptPlayerName(force = false, onDone = null) {
+            if (!force && playerName) {
+                if (onDone) onDone();
+                return;
+            }
+
+            openModal(`
+                <div class="text-center mb-3">
+                    <div class="w-12 h-12 mx-auto rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-2xl mb-2">
+                        🎮
+                    </div>
+                    <h2 class="pixel-font text-lg font-bold">ENTER YOUR CALLSIGN</h2>
+                    <p class="text-xs text-zinc-400">Type your player name so opponents know who they are dueling!</p>
+                </div>
+
+                <form id="playerNameForm" class="space-y-3">
+                    <div>
+                        <input id="playerNameInput" type="text" maxlength="12" placeholder="YOUR NAME" value="${playerName || ''}" class="w-full bg-black/40 border border-[var(--panel-border)] rounded px-3 py-2 text-center uppercase font-bold text-sm tracking-widest text-white focus:outline-none focus:border-emerald-500" autofocus required />
+                    </div>
+                    <button type="submit" class="w-full py-2.5 rounded font-bold text-xs uppercase tracking-wider text-white transition active:scale-95 shadow" style="background-color: var(--tile-correct);">
+                        Confirm & Play ▶
+                    </button>
+                </form>
+            `);
+
+            setTimeout(() => {
+                const inp = document.getElementById('playerNameInput');
+                if (inp) {
+                    inp.focus();
+                    inp.select();
+                }
+            }, 80);
+
+            document.getElementById('playerNameForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const val = document.getElementById('playerNameInput').value.trim().toUpperCase();
+                if (val) {
+                    playerName = val;
+                    localStorage.setItem('retro_wordle_player_name', playerName);
+                    updateLivePlayersUI();
+                    closeModal();
+                    showToast(`Welcome, ${playerName}!`);
+                    
+                    sendNetwork({
+                        type: 'PLAYER_NAME_UPDATE',
+                        playerName: playerName
+                    });
+
+                    if (onDone) onDone();
+                }
+            });
+        }
+
+        /**
+         * LIVE PLAYERS STATUS BAR UPDATE
+         */
+        function updateLivePlayersUI() {
+            const myNameEl = document.getElementById('liveMyName');
+            const myProgEl = document.getElementById('liveMyProgress');
+            const oppDotEl = document.getElementById('liveOpponentDot');
+            const oppNameEl = document.getElementById('liveOpponentName');
+            const oppProgEl = document.getElementById('liveOpponentProgress');
+            const roomBadge = document.getElementById('liveRoomBadge');
+            const headerPlayerName = document.getElementById('headerPlayerName');
+
+            const displayName = playerName || 'YOU';
+            if (myNameEl) myNameEl.textContent = displayName;
+            if (headerPlayerName) headerPlayerName.textContent = displayName;
+            if (myProgEl) myProgEl.textContent = `(${guesses.length}/6)`;
+
+            if (oppProgEl) oppProgEl.textContent = `(${opponent.evaluations.length}/6)`;
+
+            if (roomCode) {
+                if (roomBadge) {
+                    roomBadge.textContent = `ROOM: ${roomCode}`;
+                    roomBadge.classList.remove('hidden');
+                }
+                if (oppNameEl) oppNameEl.textContent = opponent.isBot ? 'Waiting...' : opponent.name;
+                if (oppDotEl) {
+                    if (opponent.isBot) {
+                        oppDotEl.className = 'text-amber-400 animate-pulse';
+                    } else {
+                        oppDotEl.className = 'text-emerald-400';
+                    }
+                }
+            } else {
+                if (roomBadge) roomBadge.classList.add('hidden');
+                if (oppNameEl) oppNameEl.textContent = opponent.name;
+                if (oppDotEl) oppDotEl.className = opponent.isBot ? 'text-zinc-500' : 'text-emerald-400';
+            }
+        }
+
+        /**
+         * NEW ENGINE CONSTRAINT (Wordle Strict / Hard Mode)
+         * If any letter is revealed in yellow or green, subsequent words MUST use those revealed letters.
+         */
+        function validateRevealedLetters(guess) {
+            if (guesses.length === 0) return { valid: true };
+
+            const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
+
+            // 1. Position Check: Any letter previously revealed as GREEN (correct spot) must be in exact position
+            for (let r = 0; r < evaluations.length; r++) {
+                const prevGuess = guesses[r];
+                const prevEval = evaluations[r];
+                for (let i = 0; i < 5; i++) {
+                    if (prevEval[i] === 'correct') {
+                        const requiredChar = prevGuess[i];
+                        if (guess[i] !== requiredChar) {
+                            return {
+                                valid: false,
+                                message: `${ordinals[i]} letter must be '${requiredChar}'`
+                            };
+                        }
+                    }
+                }
+            }
+
+            // 2. Presence Check: Any letter previously revealed as YELLOW or GREEN must be present in the guess
+            const requiredLetters = new Set();
+            for (let r = 0; r < evaluations.length; r++) {
+                const prevGuess = guesses[r];
+                const prevEval = evaluations[r];
+                for (let i = 0; i < 5; i++) {
+                    if (prevEval[i] === 'present' || prevEval[i] === 'correct') {
+                        requiredLetters.add(prevGuess[i]);
+                    }
+                }
+            }
+
+            for (const char of requiredLetters) {
+                if (!guess.includes(char)) {
+                    return {
+                        valid: false,
+                        message: `Guess must contain '${char}'`
+                    };
+                }
+            }
+
+            return { valid: true };
+        }
+
+        /**
          * 5. SERVERLESS WEBRTC MULTIPLAYER (PeerJS + BroadcastChannel)
          */
         let peer = null;
@@ -1318,6 +1510,7 @@
         function initMultiplayer(createAsHost = true, targetCode = null) {
             const code = (targetCode || Math.random().toString(36).substring(2, 7)).toUpperCase();
             roomCode = code;
+            updateLivePlayersUI();
 
             if (broadcastChannel) broadcastChannel.close();
             try {
@@ -1346,6 +1539,7 @@
             peer.on('open', () => {
                 showToast(createAsHost ? `Room created: ${code}` : `Joined room ${code}!`);
                 document.getElementById('duelMiniContainer').classList.remove('hidden');
+                updateLivePlayersUI();
                 if (!createAsHost) {
                     const conn = peer.connect(`wordle-room-${code}-host`);
                     setupPeerHandlers(conn);
@@ -1358,7 +1552,8 @@
                 setTimeout(() => {
                     sendNetwork({
                         type: 'HOST_SYNC',
-                        secretWord: secretWord
+                        secretWord: secretWord,
+                        playerName: playerName || 'Host'
                     });
                 }, 300);
             });
@@ -1368,14 +1563,24 @@
             p2pConn = conn;
             conn.on('open', () => {
                 showToast('Opponent connected to duel!');
-                opponent.name = 'Friend';
+                opponent.name = opponent.name === 'Alex (AI)' ? 'Opponent' : opponent.name;
                 opponent.isBot = false;
                 document.getElementById('opponentStatus').textContent = opponent.name;
+                updateLivePlayersUI();
                 if (botInterval) clearInterval(botInterval);
+
+                // If we joined as guest, introduce our player name to host
+                sendNetwork({
+                    type: 'GUEST_HELLO',
+                    playerName: playerName || 'Guest'
+                });
             });
             conn.on('data', (d) => handleNetwork(d));
             conn.on('close', () => {
                 showToast('Opponent disconnected');
+                opponent.isBot = true;
+                opponent.name = 'Alex (AI)';
+                updateLivePlayersUI();
             });
         }
 
@@ -1388,17 +1593,34 @@
             if (!data || !data.type) return;
 
             switch (data.type) {
+                case 'GUEST_HELLO':
+                    opponent.name = data.playerName || 'Guest';
+                    opponent.isBot = false;
+                    document.getElementById('opponentStatus').textContent = opponent.name;
+                    updateLivePlayersUI();
+                    showToast(`⚔️ ${opponent.name} joined the duel!`);
+                    break;
+
                 case 'HOST_SYNC':
                     secretWord = data.secretWord;
-                    opponent.name = 'Host';
+                    opponent.name = data.playerName || 'Host';
                     opponent.isBot = false;
+                    document.getElementById('opponentStatus').textContent = opponent.name;
+                    updateLivePlayersUI();
                     resetGame(false);
-                    showToast('Game synced with Host!');
+                    showToast(`⚔️ Dueling with ${opponent.name}!`);
+                    break;
+
+                case 'PLAYER_NAME_UPDATE':
+                    opponent.name = data.playerName || opponent.name;
+                    document.getElementById('opponentStatus').textContent = opponent.name;
+                    updateLivePlayersUI();
                     break;
 
                 case 'OPPONENT_GUESS':
                     opponent.evaluations.push(data.evaluation);
                     renderOpponentMiniGrid();
+                    updateLivePlayersUI();
                     if (data.won) {
                         opponent.status = 'won';
                         showToast(`🔥 ${opponent.name} solved the word!`);
@@ -1534,11 +1756,21 @@
                 return;
             }
 
+            // NEW ENGINE CONSTRAINT: Revealed letters (yellow or green) must be in subsequent guesses!
+            const revealedCheck = validateRevealedLetters(currentGuess);
+            if (!revealedCheck.valid) {
+                shakeRow(rowIdx);
+                sound.buzz();
+                showToast(revealedCheck.message);
+                return;
+            }
+
             const guess = currentGuess;
             const evalResult = evaluateGuess(guess, secretWord);
             guesses.push(guess);
             evaluations.push(evalResult);
             currentGuess = '';
+            updateLivePlayersUI();
 
             const priority = { correct: 3, present: 2, absent: 1 };
             for (let i = 0; i < 5; i++) {
@@ -1773,6 +2005,17 @@
                     <button onclick="closeModal()" class="text-xl font-bold px-1 text-zinc-400 hover:text-white">&times;</button>
                 </div>
 
+                <!-- Active Player Profile -->
+                <div class="p-2.5 rounded-xl border border-[var(--panel-border)] bg-black/40 mb-3 flex items-center justify-between">
+                    <div class="text-[11px] text-zinc-300">
+                        <span class="text-zinc-500 font-bold uppercase text-[9.5px]">YOUR CALLSIGN:</span>
+                        <span class="text-emerald-400 font-mono font-bold ml-1">${playerName || 'YOU'}</span>
+                    </div>
+                    <button onclick="promptPlayerName(true)" class="text-[10px] text-zinc-400 hover:text-white underline font-bold">
+                        Change Name
+                    </button>
+                </div>
+
                 <div class="p-3.5 rounded-xl border border-[var(--panel-border)] bg-black/30 mb-3">
                     <span class="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Share Room Link</span>
                     <p class="text-[11px] text-zinc-300 mb-2">Hosted on Vercel with zero backend! Play in real time.</p>
@@ -1806,6 +2049,7 @@
                 navigator.clipboard.writeText(input.value);
                 showToast('Room link copied!');
                 if (!roomCode) initMultiplayer(true, code);
+                updateLivePlayersUI();
             });
 
             document.getElementById('joinConfirmBtn').addEventListener('click', () => {
@@ -1893,6 +2137,7 @@
                 renderOpponentMiniGrid();
             }
 
+            updateLivePlayersUI();
             if (notify) showToast('New secret word ready!');
         }
 
@@ -1922,11 +2167,22 @@
             syncBoard(false);
             updateStatsUI();
             updateCountdownClock();
+            updateLivePlayersUI();
 
             const params = new URLSearchParams(window.location.search);
             const roomParam = params.get('room');
             if (roomParam) {
-                initMultiplayer(false, roomParam);
+                if (!playerName) {
+                    promptPlayerName(true, () => {
+                        initMultiplayer(false, roomParam);
+                    });
+                } else {
+                    initMultiplayer(false, roomParam);
+                }
+            } else {
+                if (!playerName) {
+                    promptPlayerName(false);
+                }
             }
 
             // Keyboard clicks
